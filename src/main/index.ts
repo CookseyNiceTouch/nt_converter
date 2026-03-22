@@ -2,7 +2,7 @@ import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import path from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc-handlers'
-import { initAutoUpdater, installUpdate } from './updater'
+import { initAutoUpdater, installUpdate, retryUpdate } from './updater'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -64,6 +64,9 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('install-update', () => {
     installUpdate()
+  })
+  ipcMain.handle('retry-update', () => {
+    retryUpdate()
   })
 
   const mainWindow = createWindow()

@@ -16,12 +16,15 @@ interface Api {
   windowMaximize: () => Promise<void>
   windowClose: () => Promise<void>
   installUpdate: () => Promise<void>
+  retryUpdate: () => Promise<void>
 
   onJobProgress: (callback: (data: import('../renderer/src/types').JobProgress) => void) => () => void
   onJobComplete: (callback: (data: import('../renderer/src/types').JobResult) => void) => () => void
   onJobError: (callback: (data: import('../renderer/src/types').JobError) => void) => () => void
   onUpdateAvailable: (callback: (data: { version: string }) => void) => () => void
+  onDownloadProgress: (callback: (data: { percent: number }) => void) => () => void
   onUpdateDownloaded: (callback: () => void) => () => void
+  onUpdateError: (callback: (data: { error: string }) => void) => () => void
 }
 
 declare global {

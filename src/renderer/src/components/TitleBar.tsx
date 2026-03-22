@@ -16,6 +16,10 @@ export default function TitleBar(): JSX.Element {
         </span>
       </div>
 
+      <span className="text-[10px] text-text-muted/40 pr-2 tabular-nums">
+        v{__APP_VERSION__}
+      </span>
+
       {!isMac && (
         <div
           className="flex items-center h-full"

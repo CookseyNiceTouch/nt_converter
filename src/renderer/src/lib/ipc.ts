@@ -20,10 +20,13 @@ export const ipc = {
   windowMaximize: (): Promise<void> => getApi().windowMaximize(),
   windowClose: (): Promise<void> => getApi().windowClose(),
   installUpdate: (): Promise<void> => getApi().installUpdate(),
+  retryUpdate: (): Promise<void> => getApi().retryUpdate(),
 
   onJobProgress: (cb: (data: JobProgress) => void) => getApi().onJobProgress(cb),
   onJobComplete: (cb: (data: JobResult) => void) => getApi().onJobComplete(cb),
   onJobError: (cb: (data: JobError) => void) => getApi().onJobError(cb),
   onUpdateAvailable: (cb: (data: { version: string }) => void) => getApi().onUpdateAvailable(cb),
-  onUpdateDownloaded: (cb: () => void) => getApi().onUpdateDownloaded(cb)
+  onDownloadProgress: (cb: (data: { percent: number }) => void) => getApi().onDownloadProgress(cb),
+  onUpdateDownloaded: (cb: () => void) => getApi().onUpdateDownloaded(cb),
+  onUpdateError: (cb: (data: { error: string }) => void) => getApi().onUpdateError(cb)
 }

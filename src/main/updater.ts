@@ -36,3 +36,7 @@ export function initAutoUpdater(window: BrowserWindow): void {
 export function installUpdate(): void {
   autoUpdater.quitAndInstall(false, true)
 }
+
+export function retryUpdate(): void {
+  autoUpdater.checkForUpdatesAndNotify().catch(() => {})
+}

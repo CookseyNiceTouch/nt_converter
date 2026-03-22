@@ -17,6 +17,7 @@ const api = {
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
+  retryUpdate: () => ipcRenderer.invoke('retry-update'),
 
   onJobProgress: (callback: (data: unknown) => void) => {
     const handler = (_: unknown, data: unknown): void => callback(data)
@@ -38,10 +39,20 @@ const api = {
     ipcRenderer.on('update-available', handler)
     return () => ipcRenderer.removeListener('update-available', handler)
   },
+  onDownloadProgress: (callback: (data: unknown) => void) => {
+    const handler = (_: unknown, data: unknown): void => callback(data)
+    ipcRenderer.on('update-download-progress', handler)
+    return () => ipcRenderer.removeListener('update-download-progress', handler)
+  },
   onUpdateDownloaded: (callback: () => void) => {
     const handler = (): void => callback()
     ipcRenderer.on('update-downloaded', handler)
     return () => ipcRenderer.removeListener('update-downloaded', handler)
+  },
+  onUpdateError: (callback: (data: unknown) => void) => {
+    const handler = (_: unknown, data: unknown): void => callback(data)
+    ipcRenderer.on('update-error', handler)
+    return () => ipcRenderer.removeListener('update-error', handler)
   }
 }
 

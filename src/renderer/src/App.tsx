@@ -32,7 +32,16 @@ export default function App(): JSX.Element {
     clearJobs
   } = useConversion()
 
-  const { updateVersion, updateDownloaded, installUpdate } = useAutoUpdate()
+  const {
+    updateVersion,
+    downloadPercent,
+    updateDownloaded,
+    updateError,
+    dismissed,
+    installUpdate,
+    retryUpdate,
+    dismissUpdate
+  } = useAutoUpdate()
 
   const handleFilesAdded = useCallback(
     (paths: string[]) => addFiles(paths, templateSettings),
@@ -62,11 +71,15 @@ export default function App(): JSX.Element {
     <div className="h-screen flex flex-col bg-bg-primary">
       <TitleBar />
 
-      {updateVersion && (
+      {updateVersion && !dismissed && (
         <UpdateBanner
           version={updateVersion}
+          percent={downloadPercent}
           downloaded={updateDownloaded}
+          error={updateError}
           onInstall={installUpdate}
+          onRetry={retryUpdate}
+          onDismiss={dismissUpdate}
         />
       )}
 
