@@ -22,11 +22,11 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.png
-  artifactName: "${productName}-${version}-win-${arch}.${ext}"
+  artifactName: "NT-Converter-${version}-win-${arch}.${ext}"
 
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  perMachine: false
   deleteAppDataOnUninstall: true
 
 mac:
@@ -36,7 +36,7 @@ mac:
     - target: zip
       arch: [x64, arm64]
   icon: build/icon.png
-  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+  artifactName: "NT-Converter-${version}-mac-${arch}.${ext}"
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
