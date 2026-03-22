@@ -5,14 +5,14 @@ export function useAutoUpdate() {
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [downloadPercent, setDownloadPercent] = useState(0)
   const [updateDownloaded, setUpdateDownloaded] = useState(false)
-  const [updateError, setUpdateError] = useState(false)
+  const [updateError, setUpdateError] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
     const unsubs = [
       ipc.onUpdateAvailable((data) => {
         setUpdateVersion(data.version)
-        setUpdateError(false)
+        setUpdateError(null)
         setDownloadPercent(0)
         setUpdateDownloaded(false)
         setDismissed(false)
@@ -22,11 +22,11 @@ export function useAutoUpdate() {
       }),
       ipc.onUpdateDownloaded(() => {
         setUpdateDownloaded(true)
-        setUpdateError(false)
+        setUpdateError(null)
         setDismissed(false)
       }),
-      ipc.onUpdateError(() => {
-        setUpdateError(true)
+      ipc.onUpdateError((data) => {
+        setUpdateError(data.error)
         setDismissed(false)
       })
     ]
@@ -39,7 +39,7 @@ export function useAutoUpdate() {
   }
 
   const retryUpdate = useCallback(() => {
-    setUpdateError(false)
+    setUpdateError(null)
     setDownloadPercent(0)
     ipc.retryUpdate()
   }, [])

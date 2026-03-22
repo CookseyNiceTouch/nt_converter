@@ -2,7 +2,7 @@ interface Props {
   version: string
   percent: number
   downloaded: boolean
-  error: boolean
+  error: string | null
   onInstall: () => void
   onRetry: () => void
   onDismiss: () => void
@@ -19,7 +19,7 @@ export default function UpdateBanner({
 }: Props): JSX.Element {
   let message: string
   if (error) {
-    message = `Update v${version} download failed`
+    message = `Update v${version} failed: ${error}`
   } else if (downloaded) {
     message = `Update v${version} ready to install`
   } else {
