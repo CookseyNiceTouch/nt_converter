@@ -2,6 +2,7 @@
   "name": "nt-converter",
   "version": "0.1.0",
   "description": "Professional batch media converter for video editors and creatives",
+  "author": "NiceTouch",
   "main": "./out/main/index.js",
   "scripts": {
     "setup:ffmpeg": "node scripts/download-ffmpeg.mjs",

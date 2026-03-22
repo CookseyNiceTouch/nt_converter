@@ -36,16 +36,11 @@ mac:
     - target: zip
       arch: [x64, arm64]
   icon: build/icon.png
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-
-dmg:
-  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
-
-zip:
-  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
 
 publish:
   provider: github
