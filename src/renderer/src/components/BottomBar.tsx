@@ -67,6 +67,16 @@ export default function BottomBar({
               </span>
             </>
           )}
+
+          <div className="w-px h-3.5 bg-border ml-auto" />
+          <a
+            href="https://nicetouch.app"
+            target="_blank"
+            rel="noreferrer"
+            className="text-yellow-400/70 hover:text-yellow-300 transition-colors"
+          >
+            Made by <span className="font-medium">NiceTouch</span>
+          </a>
         </div>
 
         <div className="flex items-stretch">
