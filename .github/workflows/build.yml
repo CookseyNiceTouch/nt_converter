@@ -34,6 +34,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup DigiCert code signing env vars
+        shell: bash
+        run: |
+          echo "SM_HOST=${{ secrets.KEYLOCKER_HOST }}" >> $GITHUB_ENV
+          echo "SM_API_KEY=${{ secrets.KEYLOCKER_WINDOWS_KEY }}" >> $GITHUB_ENV
+          echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.KEYLOCKER_CLIENTAUTHCERT_PW }}" >> $GITHUB_ENV
+          echo "SM_CODE_SIGNING_CERT_SHA1_HASH=${{ secrets.KEYLOCKER_CERT_SHA1_HASH }}" >> $GITHUB_ENV
+
+      - name: Setup DigiCert client certificate
+        shell: bash
+        run: |
+          echo "${{ secrets.KEYLOCKER_CLIENT_CERT }}" | base64 --decode > /d/Certificate_pkcs12.p12
+          echo "SM_CLIENT_CERT_FILE=D:\\Certificate_pkcs12.p12" >> $GITHUB_ENV
+
+      - name: Install DigiCert client tools
+        uses: digicert/ssm-code-signing@v1.1.1
+        env:
+          FORCE_DOWNLOAD_TOOLS: 'true'
+
+      - name: Verify signing tools
+        shell: powershell
+        run: |
+          smctl --version
+          Write-Host "SM_HOST: $env:SM_HOST"
+          Write-Host "SM_API_KEY: $(if($env:SM_API_KEY){'[SET]'}else{'[NOT SET]'})"
+          Write-Host "SM_CLIENT_CERT_FILE: $env:SM_CLIENT_CERT_FILE"
+          Write-Host "SM_CLIENT_CERT_PASSWORD: $(if($env:SM_CLIENT_CERT_PASSWORD){'[SET]'}else{'[NOT SET]'})"
+          Write-Host "SM_CODE_SIGNING_CERT_SHA1_HASH: $env:SM_CODE_SIGNING_CERT_SHA1_HASH"
+
+      - name: Register DigiCert KSP and sync certificate
+        shell: powershell
+        run: |
+          smctl windows ksp register
+          smctl windows certsync --keypair-alias key_1503925739
+
       - name: Download ffmpeg
         shell: bash
         run: |
