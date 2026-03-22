@@ -21,7 +21,8 @@ win:
   target:
     - target: nsis
       arch: [x64]
-  icon: build/icon.ico
+  icon: build/icon.png
+  artifactName: "${productName}-${version}-win-${arch}.${ext}"
 
 nsis:
   oneClick: false
@@ -32,14 +33,19 @@ mac:
   target:
     - target: dmg
       arch: [x64, arm64]
-  icon: build/icon.icns
+    - target: zip
+      arch: [x64, arm64]
+  icon: build/icon.png
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
-  artifactName: "${productName}-${version}-${arch}.${ext}"
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+
+zip:
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
 
 publish:
   provider: github

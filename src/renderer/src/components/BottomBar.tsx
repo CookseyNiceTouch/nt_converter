@@ -81,7 +81,7 @@ export default function BottomBar({
           {converting ? (
             <button
               onClick={onCancel}
-              className="px-5 text-xs font-semibold bg-error/10 hover:bg-error/20 text-error border-l border-error/20 transition-colors"
+              className="px-5 text-xs font-semibold bg-pink/10 hover:bg-pink/20 text-pink border-l border-pink/20 transition-colors"
             >
               Cancel
             </button>
@@ -89,7 +89,7 @@ export default function BottomBar({
             <button
               onClick={onConvert}
               disabled={fileCount === 0}
-              className="px-6 text-xs font-semibold bg-accent hover:bg-accent-hover text-white transition-all duration-150 disabled:opacity-25 disabled:cursor-not-allowed"
+              className="px-6 text-xs font-bold bg-accent hover:bg-accent-hover text-black transition-all duration-150 disabled:opacity-25 disabled:cursor-not-allowed"
             >
               Convert
             </button>

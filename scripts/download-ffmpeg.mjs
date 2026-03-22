@@ -30,13 +30,13 @@ const PLATFORMS = {
     binaries: ['ffmpeg.exe', 'ffprobe.exe']
   },
   'darwin-x64': {
-    ffmpegUrl: 'https://evermeet.cx/ffmpeg/getrelease/zip',
-    ffprobeUrl: 'https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip',
+    ffmpegUrl: 'https://ffmpeg.martin-riedl.de/redirect/latest/macos/amd64/release/ffmpeg.zip',
+    ffprobeUrl: 'https://ffmpeg.martin-riedl.de/redirect/latest/macos/amd64/release/ffprobe.zip',
     binaries: ['ffmpeg', 'ffprobe']
   },
   'darwin-arm64': {
-    ffmpegUrl: 'https://evermeet.cx/ffmpeg/getrelease/zip',
-    ffprobeUrl: 'https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip',
+    ffmpegUrl: 'https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip',
+    ffprobeUrl: 'https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip',
     binaries: ['ffmpeg', 'ffprobe']
   }
 }

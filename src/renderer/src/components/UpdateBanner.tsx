@@ -15,7 +15,7 @@ export default function UpdateBanner({ version, downloaded, onInstall }: Props):
       {downloaded && (
         <button
           onClick={onInstall}
-          className="text-sm px-4 py-1.5 bg-accent hover:bg-accent-hover text-white font-semibold transition-colors shadow-sm shadow-accent/20"
+          className="text-sm px-4 py-1.5 bg-accent hover:bg-accent-hover text-black font-bold transition-colors"
         >
           Restart & Update
         </button>

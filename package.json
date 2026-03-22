@@ -15,7 +15,8 @@
     "package:mac": "electron-vite build && electron-builder --mac --config electron-builder.yml"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "ogl": "^1.0.11"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

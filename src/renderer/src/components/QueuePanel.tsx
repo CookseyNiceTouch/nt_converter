@@ -3,6 +3,7 @@ import type { FileItem, Job } from '../types'
 import { formatDuration, formatFileSize, formatResolution, codecDisplayName, settingsSummary } from '../lib/formats'
 import { ipc } from '../lib/ipc'
 import logoUrl from '../assets/logo.png'
+import LineWaves from './LineWaves'
 
 interface Props {
   files: FileItem[]
@@ -167,12 +168,31 @@ export default function QueuePanel({
       {/* File list / empty state */}
       <div className="flex-1 overflow-y-auto">
         {files.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center px-8">
-            <img src={logoUrl} alt="" className="w-12 h-12 rounded-lg mb-4 opacity-50" draggable={false} />
-            <p className="text-text-secondary text-sm font-medium mb-1">No files in queue</p>
-            <p className="text-text-muted text-xs leading-relaxed max-w-[240px]">
-              Drop files or folders here, or use the buttons above to add media
-            </p>
+          <div className="relative h-full overflow-hidden">
+            <div className="absolute inset-0">
+              <LineWaves
+                speed={0.3}
+                innerLineCount={32}
+                outerLineCount={36}
+                warpIntensity={1}
+                rotation={-45}
+                edgeFadeWidth={0}
+                colorCycleSpeed={1}
+                brightness={0.15}
+                color1="#D4FF00"
+                color2="#FF2D78"
+                color3="#D4FF00"
+                enableMouseInteraction
+                mouseInfluence={2}
+              />
+            </div>
+            <div className="relative z-10 flex flex-col items-center justify-center h-full text-center px-8 pointer-events-none">
+              <img src={logoUrl} alt="" className="w-14 h-14 rounded-lg mb-4 drop-shadow-[0_0_12px_rgba(212,255,0,0.3)]" draggable={false} />
+              <p className="text-text-primary text-sm font-semibold mb-1">No files in queue</p>
+              <p className="text-text-secondary text-xs leading-relaxed max-w-[240px]">
+                Drop files or folders here, or use the buttons above to add media
+              </p>
+            </div>
           </div>
         ) : (
           files.map((file) => {

@@ -11,7 +11,7 @@ function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    backgroundColor: '#09090e',
+    backgroundColor: '#080808',
     titleBarStyle: 'hiddenInset',
     ...(process.platform === 'win32' ? { frame: false } : {}),
     icon: path.join(__dirname, '../../build/icon.png'),

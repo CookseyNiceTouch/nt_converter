@@ -110,7 +110,7 @@ export default function ConversionPanel({
       {/* Header */}
       <div className="px-4 py-2.5 border-b border-border">
         <h2 className="text-sm font-semibold text-text-primary">Output Settings</h2>
-        <p className={`text-xs mt-0.5 ${isEditingFiles ? 'text-accent' : 'text-text-muted'}`}>
+        <p className={`text-xs mt-0.5 ${isEditingFiles ? 'text-pink' : 'text-text-muted'}`}>
           {contextLabel}
         </p>
       </div>
