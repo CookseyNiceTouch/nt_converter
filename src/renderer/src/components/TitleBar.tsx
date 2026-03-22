@@ -6,17 +6,20 @@ export default function TitleBar(): JSX.Element {
 
   return (
     <div
-      className="flex items-center h-8 bg-bg-secondary border-b border-border-subtle select-none shrink-0"
+      className="flex items-center h-8 bg-bg-secondary border-b border-border-subtle select-none shrink-0 relative"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
-      <div className="flex items-center gap-2 pl-5 pr-3 flex-1">
+      {/* Absolutely centred logo + title so macOS traffic lights don't overlap */}
+      <div className="absolute inset-0 flex items-center justify-center gap-2 pointer-events-none">
         <img src={logoUrl} alt="" className="w-4 h-4 rounded-sm" draggable={false} />
         <span className="text-xs font-semibold tracking-wide text-text-muted">
           NT Converter
         </span>
       </div>
 
-      <span className="text-[10px] text-text-muted/40 pr-2 tabular-nums">
+      {/* Spacer so version sits on the right without disturbing the centred group */}
+      <div className="flex-1" />
+      <span className="text-[10px] text-text-muted/40 pr-2 tabular-nums relative z-10">
         v{__APP_VERSION__}
       </span>
 
