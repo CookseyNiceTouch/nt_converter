@@ -44,4 +44,6 @@ mac:
 
 publish:
   provider: github
+  owner: CookseyNiceTouch
+  repo: nt_converter
   releaseType: release
