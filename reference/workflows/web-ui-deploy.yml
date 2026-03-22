@@ -1,0 +1,90 @@
+name: Deploy Web-UI to Sevalla
+
+on:
+  push:
+    tags:
+      - 'web-ui/v*'   # e.g. web-ui/v1.0.0 or web-ui/v1.0.0-rc.1
+  workflow_dispatch:  # Allow manual trigger for testing
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-to-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper git operations
+
+      # Extract version from tag (web-ui/v1.0.0 -> v1.0.0)
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#web-ui/}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            # For manual triggers, use a dev tag
+            VERSION="dev-${GITHUB_SHA::7}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          fi
+          echo "Building version: ${VERSION}"
+
+      # Decide "channel" from the tag name (staging if prerelease, else production)
+      - name: Choose channel and deployment branch
+        id: channel
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" =~ -rc\.|-alpha\.|-beta\. ]]; then
+            echo "channel=staging" >> $GITHUB_OUTPUT
+            echo "branch=deploy/web-ui-staging" >> $GITHUB_OUTPUT
+            echo "Channel: staging"
+            echo "Target branch: deploy/web-ui-staging"
+          else
+            echo "channel=production" >> $GITHUB_OUTPUT
+            echo "branch=deploy/web-ui-production" >> $GITHUB_OUTPUT
+            echo "Channel: production"
+            echo "Target branch: deploy/web-ui-production"
+          fi
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Push to deployment branch
+        env:
+          DEPLOY_BRANCH: ${{ steps.channel.outputs.branch }}
+          VERSION: ${{ steps.version.outputs.version }}
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+        run: |
+          echo "🚀 Deploying ${VERSION} to ${DEPLOY_BRANCH}..."
+          
+          # Push current commit to the deployment branch (force push to ensure clean state)
+          git push origin HEAD:refs/heads/${DEPLOY_BRANCH} --force
+          
+          echo "✅ Successfully pushed to ${DEPLOY_BRANCH}"
+          echo "📦 Sevalla will now detect the push and build the static site"
+
+      - name: Deployment Summary
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DEPLOY_BRANCH: ${{ steps.channel.outputs.branch }}
+        run: |
+          echo "🎉 Deployment Triggered!"
+          echo ""
+          echo "Version: ${VERSION}"
+          echo "Channel: ${CHANNEL}"
+          echo "Branch: ${DEPLOY_BRANCH}"
+          echo ""
+          echo "📊 Next Steps:"
+          echo "  1. Sevalla will detect the push to ${DEPLOY_BRANCH}"
+          echo "  2. Sevalla will run: npm run web:build"
+          echo "  3. Static site will be published from packages/web-ui/dist"
+          echo "  4. Monitor Sevalla dashboard for build progress"
+

@@ -1,0 +1,857 @@
+name: Build Electron App
+
+on:
+  push:
+    tags:
+      - 'nt-app/v*'   # e.g. nt-app/v0.1.0 or nt-app/v0.1.0-alpha.1
+  workflow_dispatch:  # Allow manual trigger for testing
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    # Use staging environment for dev/beta/alpha/rc builds, production for stable releases
+    environment: ${{ (github.ref_type == 'tag' && !contains(github.ref_name, '-dev') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') && !contains(github.ref_name, '-rc')) && 'production' || 'staging' }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.channel.outputs.channel }}
+    
+    steps:
+      # Step 1: Get your code from the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Extract version from tag (nt-app/v0.1.0 -> v0.1.0)
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#nt-app/}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            # For manual triggers, use a dev tag
+            VERSION="dev-${GITHUB_SHA::7}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          fi
+          echo "Building version: ${VERSION}"
+
+      # Decide "channel" from the tag name (dev for -dev., staging if prerelease, else production)
+      - name: Choose channel
+        id: channel
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" =~ -dev\. ]]; then
+            echo "channel=dev" >> $GITHUB_OUTPUT
+            echo "Channel: dev"
+          elif [[ "$VERSION" =~ -rc\.|-alpha\.|-beta\. ]]; then
+            echo "channel=staging" >> $GITHUB_OUTPUT
+            echo "Channel: staging"
+          else
+            echo "channel=production" >> $GITHUB_OUTPUT
+            echo "Channel: production"
+          fi
+
+      # Step 2: Setup Node.js (required for TypeScript, Vite, and electron-builder)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      # Step 3: Install all Node.js dependencies
+      # Using 'npm ci' instead of 'npm install' for cleaner, faster CI builds
+      - name: Install Node dependencies
+        run: npm ci
+      
+      # Step 4: Setup environment variables for DigiCert Code Signing
+      - name: Setup code signing environment variables
+        shell: bash
+        run: |
+          echo "SM_HOST=${{ secrets.KEYLOCKER_HOST }}" >> $GITHUB_ENV
+          echo "SM_API_KEY=${{ secrets.KEYLOCKER_WINDOWS_KEY }}" >> $GITHUB_ENV
+          echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.KEYLOCKER_CLIENTAUTHCERT_PW }}" >> $GITHUB_ENV
+          echo "SM_CODE_SIGNING_CERT_SHA1_HASH=${{ secrets.KEYLOCKER_CERT_SHA1_HASH }}" >> $GITHUB_ENV
+      
+      - name: Setup certificate
+        shell: bash
+        run: |
+          echo "${{ secrets.KEYLOCKER_CLIENT_CERT }}" | base64 --decode > /d/Certificate_pkcs12.p12
+          echo "SM_CLIENT_CERT_FILE=D:\\Certificate_pkcs12.p12" >> $GITHUB_ENV
+      
+      # Install DigiCert client tools for standard keypair/PKCS11 mode (per DigiCert docs)
+      - name: Install DigiCert client tools
+        id: digicert-tools
+        uses: digicert/ssm-code-signing@v1.1.1
+        env:
+          FORCE_DOWNLOAD_TOOLS: 'true'
+
+      - name: Verify signing tools are available
+        shell: powershell
+        run: |
+          Write-Host "✅ Checking for smctl..."
+          smctl --version
+          Write-Host "`n✅ Checking PKCS11 config..."
+          $pkcsCfg = 'C:\Users\RUNNER~1\AppData\Local\Temp\smtools-windows-x64\pkcs11properties.cfg'
+          if (Test-Path $pkcsCfg) {
+            Write-Host "PKCS11 config found at: $pkcsCfg"
+          } else {
+            Write-Host "⚠️  PKCS11 config not found at expected path: $pkcsCfg"
+          }
+          Write-Host "`n✅ Code signing environment variables set:"
+          Write-Host "SM_HOST: $env:SM_HOST"
+          Write-Host "SM_API_KEY: $(if($env:SM_API_KEY){'[SET]'}else{'[NOT SET]'})"
+          Write-Host "SM_CLIENT_CERT_FILE: $env:SM_CLIENT_CERT_FILE"
+          Write-Host "SM_CLIENT_CERT_PASSWORD: $(if($env:SM_CLIENT_CERT_PASSWORD){'[SET]'}else{'[NOT SET]'})"
+          Write-Host "SM_CODE_SIGNING_CERT_SHA1_HASH: $env:SM_CODE_SIGNING_CERT_SHA1_HASH"
+
+      - name: Register DigiCert KSP and sync certificate
+        shell: powershell
+        run: |
+          Write-Host "Registering DigiCert KSP..."
+          smctl windows ksp register
+
+          Write-Host "Syncing certificate to CurrentUser store..."
+          smctl windows certsync --keypair-alias key_1503925739
+
+          Write-Host "KSP registration and cert sync completed."
+      
+      # Step 6: Verify 7zip binary is available for electron-builder on Windows
+      - name: Verify and fix 7zip-bin permissions
+        shell: powershell
+        run: |
+          $zipPath = node -e "console.log(require('7zip-bin').path7za)"
+          Write-Host "7zip path: $zipPath"
+          if (Test-Path $zipPath) {
+            Write-Host "7zip binary exists"
+            # Ensure the file is not read-only
+            Set-ItemProperty -Path $zipPath -Name IsReadOnly -Value $false
+            Write-Host "Permissions updated for 7zip binary"
+          } else {
+            Write-Host "ERROR: 7zip binary not found at $zipPath"
+            exit 1
+          }
+
+      # Step 7: Update version in package.json with tag version
+      - name: Update package version
+        shell: bash
+        working-directory: packages/electron-app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "Updating package.json version to: $VERSION"
+          # Remove 'v' prefix if present for npm version format
+          VERSION_NO_V="${VERSION#v}"
+          # Use npm version to update the version (without creating a git tag)
+          npm version "$VERSION_NO_V" --no-git-tag-version --allow-same-version
+          echo "Updated package.json to version: $VERSION_NO_V"
+          cat package.json | grep '"version"'
+
+      # Step 7.5: Stamp CEP manifest version from Electron app version
+      - name: Update CEP manifest version from app version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PKG="packages/electron-app/package.json"
+          CEP_MANIFEST="packages/premiere-cep-panel/CSXS/manifest.xml"
+
+          APP_VERSION=$(node -p "require('./${APP_PKG}').version")
+          echo "App version from package.json: ${APP_VERSION}"
+
+          if [ ! -f "${CEP_MANIFEST}" ]; then
+            echo "ERROR: CEP manifest not found at ${CEP_MANIFEST}"
+            exit 1
+          fi
+
+          echo "Stamping CEP manifest with version: ${APP_VERSION}"
+
+          node << 'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const appPkgPath = path.join('packages', 'electron-app', 'package.json');
+          const manifestPath = path.join('packages', 'premiere-cep-panel', 'CSXS', 'manifest.xml');
+
+          const appVersion = require('./' + appPkgPath).version;
+          let xml = fs.readFileSync(manifestPath, 'utf8');
+
+          // Update ExtensionBundleVersion
+          xml = xml.replace(
+            /ExtensionBundleVersion="[^"]+"/,
+            `ExtensionBundleVersion="${appVersion}"`,
+          );
+
+          // Update the com.nicetouch.premiere.panel Extension Version attribute
+          xml = xml.replace(
+            /<Extension Id="com\.nicetouch\.premiere\.panel" Version="[^"]+"/,
+            `<Extension Id="com.nicetouch.premiere.panel" Version="${appVersion}"`,
+          );
+
+          fs.writeFileSync(manifestPath, xml, 'utf8');
+          console.log(`Updated CEP manifest at ${manifestPath} to version ${appVersion}`);
+          NODE
+
+          echo "CEP manifest updated:"
+          grep -E 'ExtensionBundleVersion=|<Extension Id="com.nicetouch.premiere.panel"' "${CEP_MANIFEST}"
+
+      # Step 8: Build the Electron app (this runs your npm run electron:build)
+      - name: Build Electron App
+        run: npm run electron:build
+        env:
+          NODE_ENV: production
+
+      # Step 9: Debug DigiCert keypairs and certificates (for troubleshooting)
+      - name: Debug DigiCert keypairs and certificates
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          Write-Host "=== smctl keypair list ==="
+          smctl keypair list
+          Write-Host ""
+          Write-Host "=== smctl certificate list ==="
+          smctl certificate list
+
+          # Do not fail the build even if smctl returns a non-zero exit code here
+          exit 0
+
+      # Step 11: Verify build outputs and list generated files
+      - name: Verify build outputs
+        shell: bash
+        run: |
+          echo "📦 Listing generated files in release directory:"
+          ls -la packages/electron-app/release/ || echo "Release directory not found"
+          if [ -d "packages/electron-app/release" ]; then
+            find packages/electron-app/release -type f -name "*.yml" -o -name "*.exe" -o -name "*.blockmap"
+          fi
+          echo ""
+          echo "🔍 Checking for latest.yml:"
+          find packages/electron-app/release -name "latest.yml" || echo "⚠️ latest.yml not found!"
+          
+      # Step 10: Upload the built files as artifacts
+      # These will be available to download from the GitHub Actions UI
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows-${{ steps.version.outputs.version }}
+          # electron-builder outputs to release/${version} directory
+          path: |
+            packages/electron-app/release/**/*.exe
+            packages/electron-app/release/**/*.yml
+            packages/electron-app/release/**/*.blockmap
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Build summary
+        shell: bash
+        run: |
+          echo "✅ Electron app built successfully!"
+          echo "📦 Version: ${{ steps.version.outputs.version }}"
+          echo "🏷️  Channel: ${{ steps.channel.outputs.channel }}"
+
+  build-macos:
+    runs-on: macos-latest
+    # Use staging environment for dev/beta/alpha/rc builds, production for stable releases
+    environment: ${{ (github.ref_type == 'tag' && !contains(github.ref_name, '-dev') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') && !contains(github.ref_name, '-rc')) && 'production' || 'staging' }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.channel.outputs.channel }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#nt-app/}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          fi
+          echo "Building version: ${VERSION}"
+
+      - name: Choose channel
+        id: channel
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" =~ -dev\. ]]; then
+            echo "channel=dev" >> $GITHUB_OUTPUT
+            echo "Channel: dev"
+          elif [[ "$VERSION" =~ -rc\.|-alpha\.|-beta\. ]]; then
+            echo "channel=staging" >> $GITHUB_OUTPUT
+            echo "Channel: staging"
+          else
+            echo "channel=production" >> $GITHUB_OUTPUT
+            echo "Channel: production"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Import Apple signing certificates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CERT_PATH="$RUNNER_TEMP/apple_signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="${MACOS_KEYCHAIN_PASSWORD}"
+
+          echo "Decoding macOS signing certificate to $CERT_PATH"
+          # Use printf instead of echo to avoid inserting extra newlines
+          printf '%s' "$MACOS_CERT_BASE64" | base64 --decode > "$CERT_PATH"
+
+          echo "Decoded cert file details:"
+          ls -l "$CERT_PATH"
+          file "$CERT_PATH" || true
+
+          echo "Creating temporary keychain at $KEYCHAIN_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "Importing .p12 into keychain"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+
+          echo "Adding keychain to search list"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/\"//g')
+
+          echo "Allowing codesign to use the key without UI prompts"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "CSC_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+        env:
+          MACOS_CERT_BASE64: ${{ secrets.MACOS_CERT_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+
+      - name: Download FFmpeg static binaries for universal build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "📦 Resolve latest available tarballs from npm (dynamic, no hardcoded ARM versions)"
+          get_tgz() { npm view "$1" dist.tarball; }
+          FFMPEG_ARM_TGZ="$(get_tgz @ffmpeg-installer/darwin-arm64 || true)"
+          FFPROBE_ARM_TGZ="$(get_tgz @ffprobe-installer/darwin-arm64 || true)"
+          FFMPEG_X64_TGZ="$(get_tgz @ffmpeg-installer/darwin-x64)"
+          FFPROBE_X64_TGZ="$(get_tgz @ffprobe-installer/darwin-x64)"
+
+          echo "arm64 ffmpeg tgz:  ${FFMPEG_ARM_TGZ:-<none>}"
+          echo "arm64 ffprobe tgz: ${FFPROBE_ARM_TGZ:-<none>}"
+          echo "x64   ffmpeg tgz:  $FFMPEG_X64_TGZ"
+          echo "x64   ffprobe tgz: $FFPROBE_X64_TGZ"
+
+          mkdir -p packages/electron-app/resources/ffmpeg/darwin-arm64
+          mkdir -p packages/electron-app/resources/ffmpeg/darwin-x64
+          rm -rf tmp_arm tmp_x64
+          mkdir -p tmp_arm tmp_x64
+
+          echo "📥 Download x64 tarballs (with retries)"
+          curl -fSL --retry 3 --retry-delay 2 "$FFMPEG_X64_TGZ"  -o ffmpeg-x64.tgz
+          curl -fSL --retry 3 --retry-delay 2 "$FFPROBE_X64_TGZ" -o ffprobe-x64.tgz
+
+          echo "📥 Download arm64 tarballs if available; fall back to evermeet zips otherwise"
+          ARM_TGZ_OK=true
+          if [ -n "${FFMPEG_ARM_TGZ:-}" ]; then
+            curl -fSL --retry 3 --retry-delay 2 "$FFMPEG_ARM_TGZ"  -o ffmpeg-arm64.tgz || ARM_TGZ_OK=false
+          else
+            ARM_TGZ_OK=false
+          fi
+          if [ -n "${FFPROBE_ARM_TGZ:-}" ]; then
+            curl -fSL --retry 3 --retry-delay 2 "$FFPROBE_ARM_TGZ" -o ffprobe-arm64.tgz || true
+          fi
+
+          echo "📂 Extract x64"
+          tar -tzf ffmpeg-x64.tgz  >/dev/null
+          tar -xzf  ffmpeg-x64.tgz  -C tmp_x64
+          tar -tzf ffprobe-x64.tgz >/dev/null
+          tar -xzf  ffprobe-x64.tgz -C tmp_x64
+
+          echo "📂 Extract arm64"
+          if [ "$ARM_TGZ_OK" = true ] && [ -f ffmpeg-arm64.tgz ]; then
+            tar -tzf ffmpeg-arm64.tgz >/dev/null
+            tar -xzf  ffmpeg-arm64.tgz -C tmp_arm
+            if [ -f ffprobe-arm64.tgz ]; then
+              tar -tzf ffprobe-arm64.tgz >/dev/null || true
+              tar -xzf  ffprobe-arm64.tgz -C tmp_arm || true
+            fi
+          else
+            echo "↪️  Falling back to evermeet for arm64 binaries"
+            curl -fSL --retry 3 https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip  -o ffmpeg-arm64.zip
+            curl -fSL --retry 3 https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip -o ffprobe-arm64.zip || true
+            unzip -o ffmpeg-arm64.zip -d tmp_arm
+            [ -f ffprobe-arm64.zip ] && unzip -o ffprobe-arm64.zip -d tmp_arm || true
+          fi
+
+          echo "📄 Stage into resources"
+          # x64
+          cp tmp_x64/package/ffmpeg  packages/electron-app/resources/ffmpeg/darwin-x64/ffmpeg
+          cp tmp_x64/package/ffprobe packages/electron-app/resources/ffmpeg/darwin-x64/ffprobe
+          # arm64 (package/ for npm tarballs; plain filenames for evermeet zips)
+          if [ -f tmp_arm/package/ffmpeg ]; then
+            cp tmp_arm/package/ffmpeg  packages/electron-app/resources/ffmpeg/darwin-arm64/ffmpeg
+          elif [ -f tmp_arm/ffmpeg ]; then
+            cp tmp_arm/ffmpeg packages/electron-app/resources/ffmpeg/darwin-arm64/ffmpeg
+          fi
+          if [ -f tmp_arm/package/ffprobe ]; then
+            cp tmp_arm/package/ffprobe packages/electron-app/resources/ffmpeg/darwin-arm64/ffprobe
+          elif [ -f tmp_arm/ffprobe ]; then
+            cp tmp_arm/ffprobe packages/electron-app/resources/ffmpeg/darwin-arm64/ffprobe || true
+          fi
+
+          echo "🔐 chmod +x"
+          chmod +x packages/electron-app/resources/ffmpeg/darwin-x64/*
+          chmod +x packages/electron-app/resources/ffmpeg/darwin-arm64/* || true
+
+          echo "🧬 Verify architectures"
+          file packages/electron-app/resources/ffmpeg/darwin-x64/ffmpeg  | grep -q 'x86_64'  || { echo '❌ ffmpeg x64 not x86_64'; exit 1; }
+          file packages/electron-app/resources/ffmpeg/darwin-x64/ffprobe | grep -q 'x86_64'  || { echo '❌ ffprobe x64 not x86_64'; exit 1; }
+          file packages/electron-app/resources/ffmpeg/darwin-arm64/ffmpeg | grep -q 'arm64'   || { echo '❌ ffmpeg arm64 not arm64'; exit 1; }
+          if [ -f packages/electron-app/resources/ffmpeg/darwin-arm64/ffprobe ]; then
+            file packages/electron-app/resources/ffmpeg/darwin-arm64/ffprobe | grep -q 'arm64' || { echo '❌ ffprobe arm64 not arm64'; exit 1; }
+          fi
+
+          echo "✅ FFmpeg binaries (arm64 & x64) validated and staged"
+          rm -rf tmp_arm tmp_x64 ffmpeg-*.tgz ffprobe-*.tgz ffmpeg-*.zip ffprobe-*.zip
+
+      - name: Update package version
+        shell: bash
+        working-directory: packages/electron-app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "Updating package.json version to: $VERSION"
+          VERSION_NO_V="${VERSION#v}"
+          npm version "$VERSION_NO_V" --no-git-tag-version --allow-same-version
+          echo "Updated package.json to version: $VERSION_NO_V"
+          cat package.json | grep '"version"'
+
+      # Stamp CEP manifest version from Electron app version (macOS)
+      - name: Update CEP manifest version from app version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PKG="packages/electron-app/package.json"
+          CEP_MANIFEST="packages/premiere-cep-panel/CSXS/manifest.xml"
+
+          APP_VERSION=$(node -p "require('./${APP_PKG}').version")
+          echo "App version from package.json: ${APP_VERSION}"
+
+          if [ ! -f "${CEP_MANIFEST}" ]; then
+            echo "ERROR: CEP manifest not found at ${CEP_MANIFEST}"
+            exit 1
+          fi
+
+          echo "Stamping CEP manifest with version: ${APP_VERSION}"
+
+          node << 'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const appPkgPath = path.join('packages', 'electron-app', 'package.json');
+          const manifestPath = path.join('packages', 'premiere-cep-panel', 'CSXS', 'manifest.xml');
+
+          const appVersion = require('./' + appPkgPath).version;
+          let xml = fs.readFileSync(manifestPath, 'utf8');
+
+          xml = xml.replace(
+            /ExtensionBundleVersion="[^"]+"/,
+            `ExtensionBundleVersion="${appVersion}"`,
+          );
+
+          xml = xml.replace(
+            /<Extension Id="com\.nicetouch\.premiere\.panel" Version="[^"]+"/,
+            `<Extension Id="com.nicetouch.premiere.panel" Version="${appVersion}"`,
+          );
+
+          fs.writeFileSync(manifestPath, xml, 'utf8');
+          console.log(`Updated CEP manifest at ${manifestPath} to version ${appVersion}`);
+          NODE
+
+          echo "CEP manifest updated:"
+          grep -E 'ExtensionBundleVersion=|<Extension Id="com.nicetouch.premiere.panel"' "${CEP_MANIFEST}"
+
+      - name: Verify Apple notarization connectivity
+        shell: bash
+        run: |
+          echo "🌐 Testing network connectivity to Apple services..."
+          echo ""
+          echo "Testing appstoreconnect.apple.com..."
+          curl -sI https://appstoreconnect.apple.com --connect-timeout 15 | head -5 || echo "⚠️ appstoreconnect.apple.com unreachable"
+          echo ""
+          echo "Testing apple.com..."
+          curl -sI https://apple.com --connect-timeout 15 | head -5 || echo "⚠️ apple.com unreachable"
+          echo ""
+          echo "📍 Network interface info:"
+          ifconfig en0 2>/dev/null | grep -E 'inet |status' || true
+          echo ""
+          echo "📍 DNS resolution test:"
+          nslookup appstoreconnect.apple.com 2>/dev/null | tail -4 || echo "DNS lookup failed"
+          echo ""
+          echo "✅ Network diagnostics complete"
+
+      - name: Build Electron App for macOS
+        run: npm run electron:build:mac
+        env:
+          NODE_ENV: production
+          CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-macos-${{ steps.version.outputs.version }}
+          path: |
+            packages/electron-app/release/**/*.dmg
+            packages/electron-app/release/**/*.zip
+            packages/electron-app/release/**/*.yml
+            packages/electron-app/release/**/*.blockmap
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Build summary
+        shell: bash
+        run: |
+          echo "✅ Electron macOS app built successfully!"
+          echo "📦 Version: ${{ steps.version.outputs.version }}"
+          echo "🏷️  Channel: ${{ steps.channel.outputs.channel }}"
+
+  publish-to-releases-repo:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag' && needs.build-windows.outputs.channel != 'dev' && !cancelled()
+    env:
+      PUBLIC_REPO: CookseyNiceTouch/nice-touch-app-releases
+    
+    steps:
+      - name: Download Windows build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-windows-${{ needs.build-windows.outputs.version }}
+          path: release-artifacts
+      
+      - name: Download macOS build artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: electron-macos-${{ needs.build-macos.outputs.version }}
+          path: release-artifacts
+      
+      - name: List downloaded artifacts
+        shell: bash
+        run: |
+          echo "📦 Contents of release-artifacts directory:"
+          ls -laR release-artifacts/
+          echo ""
+          echo "🔍 Looking for yml files:"
+          find release-artifacts -name "*.yml" -type f || echo "⚠️ No yml files found in artifacts!"
+      
+      - name: Checkout public releases repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PUBLIC_REPO }}
+          token: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+          path: releases-repo
+      
+      - name: Update release metadata JSON
+        working-directory: releases-repo
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+          CHANNEL: ${{ needs.build-windows.outputs.channel }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Determine which JSON file to update based on channel
+          # staging (alpha/beta/rc) → nice-touch-releases-staging.json
+          # production → nice-touch-releases.json
+          if [ "$CHANNEL" == "staging" ]; then
+            TARGET_FILE="nice-touch-releases-staging.json"
+          else
+            TARGET_FILE="nice-touch-releases.json"
+          fi
+          
+          echo "📦 Channel: $CHANNEL"
+          echo "📄 Target file: $TARGET_FILE"
+          
+          # Create the target JSON file if it doesn't exist
+          if [ ! -f "$TARGET_FILE" ]; then
+            echo "Creating new $TARGET_FILE..."
+            echo '{
+              "win": {
+                "platform": "win",
+                "latestVersion": "0.0.0",
+                "minSupportedVersion": "0.0.0",
+                "releaseNotesUrl": "",
+                "downloadUrl": ""
+              },
+              "mac": {
+                "platform": "mac",
+                "latestVersion": "0.0.0",
+                "minSupportedVersion": "0.0.0",
+                "releaseNotesUrl": "",
+                "downloadUrl": ""
+              },
+              "linux": {
+                "platform": "linux",
+                "latestVersion": "0.0.0",
+                "minSupportedVersion": "0.0.0",
+                "releaseNotesUrl": "",
+                "downloadUrl": ""
+              }
+            }' > "$TARGET_FILE"
+          fi
+          
+          # Install jq if not available
+          sudo apt-get update && sudo apt-get install -y jq
+          
+          # Strip 'v' prefix from version for consistency
+          VERSION_NO_V="${VERSION#v}"
+          # Use a plain semver tag (e.g. v0.2.2-rc.3) for the public releases repo
+          SEMVER_TAG="$VERSION"
+          
+          # URL-encode the tag (convert / to %2F)
+          TAG_ENCODED=$(echo -n "$TAG" | jq -sRr @uri)
+          SEMVER_TAG_ENCODED=$(echo -n "$SEMVER_TAG" | jq -sRr @uri)
+          
+          # Update Windows platform section
+          # Note: minSupportedVersion is preserved from existing JSON
+          jq --arg version "$VERSION_NO_V" \
+             --arg tag "$SEMVER_TAG" \
+             --arg tagEncoded "$SEMVER_TAG_ENCODED" \
+             --arg publicRepo "${{ env.PUBLIC_REPO }}" \
+             '.win.latestVersion = $version |
+              .win.releaseNotesUrl = "https://github.com/\($publicRepo)/releases/tag/\($tagEncoded)" |
+              .win.downloadUrl = "https://github.com/\($publicRepo)/releases/download/\($tagEncoded)/Nice.Touch-Windows-\($version)-Setup.exe"' \
+             "$TARGET_FILE" > "${TARGET_FILE}.tmp"
+          
+          mv "${TARGET_FILE}.tmp" "$TARGET_FILE"
+          
+          # Update Mac platform section (only if Mac build succeeded)
+          if ls ../release-artifacts/**/*-Installer.dmg 1> /dev/null 2>&1; then
+            echo "Mac artifacts found, updating Mac metadata..."
+            jq --arg version "$VERSION_NO_V" \
+               --arg tag "$SEMVER_TAG" \
+               --arg tagEncoded "$SEMVER_TAG_ENCODED" \
+               --arg publicRepo "${{ env.PUBLIC_REPO }}" \
+               '.mac.latestVersion = $version |
+                .mac.releaseNotesUrl = "https://github.com/\($publicRepo)/releases/tag/\($tagEncoded)" |
+                .mac.downloadUrl = "https://github.com/\($publicRepo)/releases/download/\($tagEncoded)/Nice.Touch-Mac-\($version)-Installer.dmg"' \
+               "$TARGET_FILE" > "${TARGET_FILE}.tmp"
+            
+            mv "${TARGET_FILE}.tmp" "$TARGET_FILE"
+          else
+            echo "No Mac artifacts found, skipping Mac metadata update"
+          fi
+          
+          echo "Updated $TARGET_FILE:"
+          cat "$TARGET_FILE"
+      
+      - name: Commit and push metadata
+        working-directory: releases-repo
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+          CHANNEL: ${{ needs.build-windows.outputs.channel }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add both JSON files (only modified ones will be staged)
+          git add nice-touch-releases.json nice-touch-releases-staging.json 2>/dev/null || true
+          
+          # Only commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Release: Nice Touch Desktop $VERSION ($CHANNEL)"
+            git push
+          fi
+      
+      - name: Create tag in public repo
+        working-directory: releases-repo
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+        run: |
+          SEMVER_TAG="$VERSION"
+          # Check if tag already exists on the remote (local shallow clone won't have it)
+          if git ls-remote --tags origin "$SEMVER_TAG" | grep -q "$SEMVER_TAG"; then
+            echo "Tag $SEMVER_TAG already exists on remote, skipping"
+          else
+            git tag "$SEMVER_TAG"
+            git push origin "$SEMVER_TAG"
+          fi
+      
+      - name: Create GitHub Release in public repo
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: ${{ env.PUBLIC_REPO }}
+          token: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+          tag_name: ${{ needs.build-windows.outputs.version }}
+          name: Nice Touch Desktop ${{ needs.build-windows.outputs.version }}
+          draft: false
+          prerelease: ${{ needs.build-windows.outputs.channel == 'staging' }}
+          generate_release_notes: false
+          body: |
+            ## Nice Touch Desktop App Release
+            
+            **Version:** ${{ needs.build-windows.outputs.version }}
+            **Channel:** ${{ needs.build-windows.outputs.channel }}
+            **Release Date:** ${{ github.event.head_commit.timestamp }}
+            
+            ### Installation
+            
+            **Windows:**
+            Download the `-Setup.exe` installer below and run it on Windows.
+            
+            **macOS:**
+            Download the `-Installer.dmg` file below, open it, and drag Nice Touch to your Applications folder.
+            
+            ### Files Included
+            - `*-Setup.exe` - Windows NSIS installer
+            - `*-Installer.dmg` - macOS DMG installer
+            - `latest.yml` / `latest-mac.yml` / `latest-linux.yml` - Update metadata for electron-updater
+            - `*.blockmap` - Delta update files for efficient updates
+            
+            ### Verify Integrity
+            To verify the installer integrity, check the SHA-256 checksums in the artifacts.
+            
+            ### Support
+            For issues or feedback, please visit our main repository or contact support.
+          files: |
+            release-artifacts/**/*-Setup.exe
+            release-artifacts/**/*-Setup.exe.blockmap
+            release-artifacts/**/*-Installer.dmg
+            release-artifacts/**/*-Installer.dmg.blockmap
+            release-artifacts/**/*-Installer.zip
+            release-artifacts/**/*-Installer.zip.blockmap
+            release-artifacts/**/latest.yml
+            release-artifacts/**/latest-mac.yml
+            release-artifacts/**/latest-linux.yml
+      
+      - name: Release summary
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+          CHANNEL: ${{ needs.build-windows.outputs.channel }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Determine which JSON file was updated
+          if [ "$CHANNEL" == "staging" ]; then
+            TARGET_FILE="nice-touch-releases-staging.json"
+          else
+            TARGET_FILE="nice-touch-releases.json"
+          fi
+          
+          echo "🎉 Release Published to Public Repository!"
+          echo ""
+          echo "Version: $VERSION"
+          echo "Channel: $CHANNEL"
+          echo "Prerelease: ${{ needs.build-windows.outputs.channel == 'staging' }}"
+          echo ""
+          echo "📊 Public release is now available at:"
+          echo "https://github.com/${{ env.PUBLIC_REPO }}/releases/tag/$TAG"
+          echo ""
+          echo "📥 Download URL:"
+          echo "https://github.com/${{ env.PUBLIC_REPO }}/releases/download/$TAG/"
+          echo ""
+          echo "📝 Metadata updated in $TARGET_FILE"
+
+  publish-dev-to-origin:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag' && needs.build-windows.outputs.channel == 'dev' && !cancelled()
+    
+    steps:
+      - name: Download Windows build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-windows-${{ needs.build-windows.outputs.version }}
+          path: release-artifacts
+      
+      - name: Download macOS build artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: electron-macos-${{ needs.build-macos.outputs.version }}
+          path: release-artifacts
+      
+      - name: List downloaded artifacts
+        shell: bash
+        run: |
+          echo "📦 Contents of release-artifacts directory:"
+          ls -laR release-artifacts/ || true
+      
+      - name: Create GitHub Release (dev)
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Nice Touch Desktop DEV ${{ needs.build-windows.outputs.version }}
+          draft: false
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            ## Nice Touch Desktop App - DEV Build
+            
+            **Version:** ${{ needs.build-windows.outputs.version }}
+            **Channel:** dev (testing only)
+            **Build Date:** ${{ github.event.head_commit.timestamp }}
+            
+            ⚠️ **This is a development build for internal testing purposes.**
+            
+            This build is NOT distributed via the public releases repository and will NOT trigger auto-updates for end users.
+            
+            ### Installation
+            
+            **Windows:**
+            Download the `-Setup.exe` installer below and run it on Windows.
+            
+            **macOS:**
+            Download the `-Installer.dmg` file below, open it, and drag Nice Touch to your Applications folder.
+            
+            ### Files Included
+            - `*-Setup.exe` - Windows NSIS installer
+            - `*-Installer.dmg` - macOS DMG installer
+            - `latest.yml` / `latest-mac.yml` / `latest-linux.yml` - Update metadata
+            - `*.blockmap` - Delta update files
+          files: |
+            release-artifacts/**/*-Setup.exe
+            release-artifacts/**/*-Setup.exe.blockmap
+            release-artifacts/**/*-Installer.dmg
+            release-artifacts/**/*-Installer.dmg.blockmap
+            release-artifacts/**/latest.yml
+            release-artifacts/**/latest-mac.yml
+            release-artifacts/**/latest-linux.yml
+      
+      - name: Dev release summary
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          echo "🎉 Dev Release Published to Origin Repository!"
+          echo ""
+          echo "Version: $VERSION"
+          echo "Channel: dev"
+          echo "Prerelease: true"
+          echo ""
+          echo "📊 Dev release is now available at:"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$TAG"
+          echo ""
+          echo "⚠️ This build is NOT pushed to the public releases repo"
+

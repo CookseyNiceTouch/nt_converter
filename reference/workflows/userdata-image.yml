@@ -1,0 +1,122 @@
+name: Build & Deploy nt-userdata Worker
+
+on:
+  push:
+    tags:
+      - 'nt-userdata/v*'   # e.g. nt-userdata/v0.1.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/nice_touch_app/nt-userdata
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#nt-userdata/}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          fi
+          echo "Building version: ${VERSION}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest
+            type=sha,format=long,prefix=sha-
+          flavor: |
+            latest=false
+          labels: |
+            org.opencontainers.image.title=nt-userdata
+            org.opencontainers.image.description=Nice Touch HubSpot User Data Sync Worker
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/nt-userdata/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build summary
+        run: |
+          echo "Docker image built and pushed successfully"
+          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "Tags: ${{ steps.meta.outputs.tags }}"
+
+  deploy-to-sevalla:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    environment: nt-userdata
+
+    steps:
+      - name: Trigger Sevalla Deploy Hook
+        env:
+          DEPLOY_HOOK: ${{ secrets.SEVALLA_DEPLOY_HOOK }}
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+        run: |
+          echo "Deploying nt-userdata ${VERSION} to Sevalla..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$DEPLOY_HOOK")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          echo "Response code: ${HTTP_CODE}"
+          if [ -n "$BODY" ]; then
+            echo "Response: ${BODY}"
+          fi
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Deployment triggered successfully"
+          else
+            echo "Deploy hook returned code ${HTTP_CODE}"
+          fi
+
+      - name: Deployment Summary
+        env:
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+        run: |
+          echo "Deployment complete"
+          echo "Version: ${VERSION}"
+          echo "Image: ${{ env.IMAGE_NAME }}:${VERSION}"

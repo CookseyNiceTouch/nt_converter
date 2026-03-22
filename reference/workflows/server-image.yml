@@ -1,0 +1,164 @@
+name: Build & Push nt-core Image
+
+on:
+  push:
+    tags:
+      - 'nt-core/v*'   # e.g. nt-core/v0.1.0 or nt-core/v0.1.0-rc.1
+  workflow_dispatch:  # Allow manual trigger for testing
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/nice_touch_app/nt-core
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.channel.outputs.channel }}
+      image-tag: ${{ steps.channel.outputs.channel }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Extract version from tag (nt-core/v0.1.0 -> v0.1.0)
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#nt-core/}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            # For manual triggers, use a dev tag
+            VERSION="dev-${GITHUB_SHA::7}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          fi
+          echo "Building version: ${VERSION}"
+
+      # Decide "channel" from the tag name (staging if prerelease, else production)
+      - name: Choose channel
+        id: channel
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" =~ -rc\.|-alpha\.|-beta\. ]]; then
+            echo "channel=staging" >> $GITHUB_OUTPUT
+            echo "Channel: staging"
+          else
+            echo "channel=production" >> $GITHUB_OUTPUT
+            echo "Channel: production"
+          fi
+
+      # Optional: multi-arch; remove QEMU & platforms if you only need amd64
+      # ARM64 disabled for faster builds - only deploying to AMD64 servers (Sevalla)
+      # - name: Set up QEMU (optional for arm64)
+      #   uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.channel.outputs.channel }}
+            type=sha,format=long,prefix=sha-
+          flavor: |
+            latest=false
+          labels: |
+            org.opencontainers.image.title=nt-core
+            org.opencontainers.image.description=Nice Touch Core API Server
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            com.nicetouch.channel=${{ steps.channel.outputs.channel }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/nt-core/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_VERSION=22
+
+      - name: Build summary
+        run: |
+          echo "✅ Docker image built and pushed successfully!"
+          echo "📦 Version: ${{ steps.version.outputs.version }}"
+          echo "🏷️  Channel: ${{ steps.channel.outputs.channel }}"
+          echo "🔖 Tags: ${{ steps.meta.outputs.tags }}"
+
+  deploy-to-sevalla:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    # Use GitHub environments to access the correct deploy hook
+    environment: ${{ needs.build-and-push.outputs.channel }}
+    
+    steps:
+      - name: Trigger Sevalla Deploy Hook
+        env:
+          DEPLOY_HOOK: ${{ secrets.SEVALLA_DEPLOY_HOOK }}
+          CHANNEL: ${{ needs.build-and-push.outputs.channel }}
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+        run: |
+          echo "🚀 Deploying to Sevalla ($CHANNEL)..."
+          echo "Version: $VERSION"
+          echo "Image: ${{ env.IMAGE_NAME }}:${CHANNEL}"
+          
+          # Trigger Sevalla deploy hook
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$DEPLOY_HOOK")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          echo "Response code: ${HTTP_CODE}"
+          if [ -n "$BODY" ]; then
+            echo "Response: ${BODY}"
+          fi
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Deployment triggered successfully!"
+            echo "🔍 Check Sevalla dashboard for deployment progress"
+          else
+            echo "⚠️  Deploy hook returned code ${HTTP_CODE}"
+            echo "Note: Some deploy hooks return non-2xx codes but still work"
+          fi
+      
+      - name: Deployment Summary
+        env:
+          CHANNEL: ${{ needs.build-and-push.outputs.channel }}
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+        run: |
+          echo "🎉 Deployment Complete!"
+          echo ""
+          echo "Channel: ${CHANNEL}"
+          echo "Version: ${VERSION}"
+          echo "Image: ${{ env.IMAGE_NAME }}:${CHANNEL}"
+          echo ""
+          echo "📊 Next Steps:"
+          echo "  1. Check Sevalla dashboard for deployment status"
+          echo "  2. Verify health endpoint: https://your-app.sevalla.app/health"
+          echo "  3. Monitor application logs in Sevalla"
