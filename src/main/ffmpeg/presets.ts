@@ -23,7 +23,7 @@ export const presets: Preset[] = [
       videoCodec: 'libx264',
       audioCodec: 'aac',
       container: 'mp4',
-      resolution: '1920x1080',
+      resolution: '1920:1080',
       videoBitrate: '8000k',
       audioBitrate: '192k',
       fps: '',

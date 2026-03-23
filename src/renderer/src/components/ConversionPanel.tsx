@@ -97,6 +97,13 @@ export default function ConversionPanel({
         : 'border-border hover:border-text-muted/40 focus:border-border-focus focus:ring-1 focus:ring-border-focus/20'
     }`
 
+  function truncatePath(p: string): string {
+    if (!p) return ''
+    const segments = p.replace(/\\/g, '/').split('/')
+    if (segments.length <= 2) return p
+    return '...' + '/' + segments.slice(-2).join('/')
+  }
+
   const labelClass = 'block text-[11px] font-semibold text-text-muted mb-1 uppercase tracking-wider'
 
   const contextLabel = isEditingFiles
@@ -244,6 +251,46 @@ export default function ConversionPanel({
             <option value="640:-1">640w (auto height)</option>
             <option value="480:-1">480w (auto height)</option>
           </select>
+        </div>
+
+        {/* Output Directory */}
+        <div>
+          <label className={labelClass}>Output</label>
+          <div className="flex items-center gap-1.5">
+            <div
+              className={`flex-1 min-w-0 bg-bg-primary border px-2.5 py-1.5 text-[13px] truncate ${
+                isMixed('outputDir')
+                  ? 'border-warning/30 text-text-muted italic'
+                  : val('outputDir')
+                    ? 'border-border text-text-primary'
+                    : 'border-border text-text-muted'
+              }`}
+              title={isMixed('outputDir') ? 'Mixed' : val('outputDir') || 'Same as source'}
+            >
+              {isMixed('outputDir') ? 'Mixed' : truncatePath(val('outputDir')) || 'Same as source'}
+            </div>
+            <button
+              onClick={async () => {
+                const dir = await ipc.chooseOutputDir()
+                if (dir) handleFieldChange('outputDir', dir)
+              }}
+              className="shrink-0 px-2.5 py-1.5 text-[13px] bg-bg-primary border border-border hover:border-text-muted/40 hover:bg-bg-hover text-text-secondary transition-colors"
+            >
+              Browse
+            </button>
+            {(val('outputDir') || isMixed('outputDir')) && (
+              <button
+                onClick={() => handleFieldChange('outputDir', '')}
+                className="shrink-0 p-1.5 bg-bg-primary border border-border hover:border-text-muted/40 hover:bg-bg-hover text-text-muted hover:text-text-secondary transition-colors"
+                title="Reset to same as source"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Divider + Advanced toggle */}

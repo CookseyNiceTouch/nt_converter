@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import TitleBar from './components/TitleBar'
 import QueuePanel from './components/QueuePanel'
 import ConversionPanel from './components/ConversionPanel'
@@ -15,6 +15,7 @@ export default function App(): JSX.Element {
     selectedFiles,
     addFiles,
     removeFile,
+    removeFiles,
     selectFile,
     selectAll,
     deselectAll,
@@ -52,6 +53,37 @@ export default function App(): JSX.Element {
     if (files.length === 0) return
     startConversion(files)
   }, [files, startConversion])
+
+  const handleConvertSelected = useCallback(() => {
+    if (selectedFiles.length === 0) return
+    startConversion(selectedFiles)
+  }, [selectedFiles, startConversion])
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent): void {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault()
+        selectAll()
+      } else if (e.key === 'Escape') {
+        deselectAll()
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && !converting) {
+        const ids = selectedFiles.map((f) => f.id)
+        if (ids.length > 0) removeFiles(ids)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectAll, deselectAll, selectedFiles, removeFiles, converting])
+
+  const handleClearDone = useCallback(() => {
+    const doneIds = Array.from(jobs.entries())
+      .filter(([, j]) => j.status === 'done')
+      .map(([id]) => id)
+    removeFiles(doneIds)
+    clearJobs()
+  }, [jobs, removeFiles, clearJobs])
 
   const handleFieldChange = useCallback(
     (field: keyof ConversionSettings, value: string) => {
@@ -95,23 +127,34 @@ export default function App(): JSX.Element {
           onDeselectAll={deselectAll}
         />
 
-        <ConversionPanel
-          selectedFiles={selectedFiles}
-          templateSettings={templateSettings}
-          hasFiles={files.length > 0}
-          onFieldChange={handleFieldChange}
-          onPresetApply={handlePresetApply}
-          onTemplateChange={setTemplateSettings}
-        />
+        {files.length > 0 && (
+          selectedFiles.length > 0 ? (
+            <ConversionPanel
+              selectedFiles={selectedFiles}
+              templateSettings={templateSettings}
+              hasFiles={files.length > 0}
+              onFieldChange={handleFieldChange}
+              onPresetApply={handlePresetApply}
+              onTemplateChange={setTemplateSettings}
+            />
+          ) : (
+            <div className="border-l border-border bg-bg-secondary w-[280px] flex flex-col items-center justify-center shrink-0">
+              <p className="text-text-muted text-xs">Select files to edit settings</p>
+            </div>
+          )
+        )}
       </div>
 
       <BottomBar
         fileCount={files.length}
+        selectedFileCount={selectedFiles.length}
+        probing={files.some((f) => f.probing)}
         jobs={jobs}
         converting={converting}
         onConvert={handleConvert}
+        onConvertSelected={handleConvertSelected}
         onCancel={cancelConversion}
-        onClearDone={clearJobs}
+        onClearDone={handleClearDone}
       />
     </div>
   )

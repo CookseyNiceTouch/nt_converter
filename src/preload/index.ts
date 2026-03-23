@@ -12,6 +12,8 @@ const api = {
   scanDroppedPaths: (paths: string[]) => ipcRenderer.invoke('scan-dropped-paths', paths),
   startQueue: (jobs: unknown[]) => ipcRenderer.invoke('start-queue', jobs),
   cancelQueue: () => ipcRenderer.invoke('cancel-queue'),
+  chooseOutputDir: () => ipcRenderer.invoke('choose-output-dir'),
+  showItemInFolder: (filePath: string) => ipcRenderer.invoke('show-item-in-folder', filePath),
 
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),

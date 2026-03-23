@@ -1,4 +1,5 @@
 import path from 'path'
+import fs from 'fs'
 import { spawn, ChildProcess } from 'child_process'
 import { BrowserWindow } from 'electron'
 import { getFfmpegPath } from './paths'
@@ -15,6 +16,7 @@ export interface ConversionJob {
     audioBitrate: string
     fps: string
     extraArgs: string
+    outputDir: string
   }
   duration: number
 }
@@ -23,7 +25,7 @@ let currentProcess: ChildProcess | null = null
 let cancelled = false
 
 function buildOutputPath(inputPath: string, settings: ConversionJob['settings']): string {
-  const dir = path.dirname(inputPath)
+  const dir = settings.outputDir || path.dirname(inputPath)
   const ext = path.extname(inputPath)
   const base = path.basename(inputPath, ext)
 
@@ -36,7 +38,14 @@ function buildOutputPath(inputPath: string, settings: ConversionJob['settings'])
     : ''
 
   const outputExt = settings.container ? `.${settings.container}` : ext
-  return path.join(dir, `${base}_nt_${codecTag}${resTag}${outputExt}`)
+  const baseName = `${base}_nt_${codecTag}${resTag}`
+  let finalPath = path.join(dir, `${baseName}${outputExt}`)
+  let counter = 2
+  while (fs.existsSync(finalPath)) {
+    finalPath = path.join(dir, `${baseName}_${counter}${outputExt}`)
+    counter++
+  }
+  return finalPath
 }
 
 function buildFfmpegArgs(job: ConversionJob): string[] {

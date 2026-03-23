@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
 import { probeFile } from './ffmpeg/probe'
 import { getCodecs, getFormats } from './ffmpeg/codecs'
 import { presets } from './ffmpeg/presets'
@@ -106,5 +106,20 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('cancel-queue', () => {
     cancelQueue()
+  })
+
+  ipcMain.handle('choose-output-dir', async () => {
+    const window = BrowserWindow.getFocusedWindow()
+    if (!window) return ''
+
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openDirectory']
+    })
+
+    return result.canceled || !result.filePaths.length ? '' : result.filePaths[0]
+  })
+
+  ipcMain.handle('show-item-in-folder', (_event, filePath: string) => {
+    shell.showItemInFolder(filePath)
   })
 }

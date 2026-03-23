@@ -1,4 +1,4 @@
-import { useState, useCallback, DragEvent, MouseEvent } from 'react'
+import React, { useState, useCallback, useRef, DragEvent, MouseEvent } from 'react'
 import type { FileItem, Job } from '../types'
 import { formatDuration, formatFileSize, formatResolution, codecDisplayName, settingsSummary } from '../lib/formats'
 import { ipc } from '../lib/ipc'
@@ -61,23 +61,28 @@ export default function QueuePanel({
   onDeselectAll
 }: Props): JSX.Element {
   const [isDragging, setIsDragging] = useState(false)
+  const dragCounterRef = useRef(0)
 
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(true)
+  }, [])
+
+  const handleDragEnter = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    dragCounterRef.current++
+    if (dragCounterRef.current === 1) setIsDragging(true)
   }, [])
 
   const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(false)
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) setIsDragging(false)
   }, [])
 
   const handleDrop = useCallback(
     async (e: DragEvent) => {
       e.preventDefault()
-      e.stopPropagation()
+      dragCounterRef.current = 0
       setIsDragging(false)
 
       const paths: string[] = []
@@ -114,6 +119,7 @@ export default function QueuePanel({
     <div
       className="flex flex-col flex-1 min-w-0 relative"
       onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
@@ -186,12 +192,33 @@ export default function QueuePanel({
                 mouseInfluence={2}
               />
             </div>
-            <div className="relative z-10 flex flex-col items-center justify-center h-full text-center px-8 pointer-events-none">
-              <img src={logoUrl} alt="" className="w-14 h-14 rounded-lg mb-4 drop-shadow-[0_0_12px_rgba(212,255,0,0.3)]" draggable={false} />
-              <p className="text-text-primary text-sm font-semibold mb-1">No files in queue</p>
-              <p className="text-text-secondary text-xs leading-relaxed max-w-[240px]">
-                Drop files or folders here, or use the buttons above to add media
-              </p>
+            <div className="relative z-10 h-full pointer-events-none">
+              {/* Logo + text: truly centred */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 pointer-events-none">
+                <img src={logoUrl} alt="" className="w-14 h-14 rounded-lg mb-4 drop-shadow-[0_0_12px_rgba(212,255,0,0.3)]" draggable={false} />
+                <p className="text-text-primary text-sm font-semibold mb-1">No files in queue</p>
+                <p className="text-text-secondary text-xs leading-relaxed max-w-[240px]">
+                  Drop files or folders here to get started
+                </p>
+              </div>
+              {/* Buttons: anchored below centre */}
+              <div
+                className="absolute left-1/2 -translate-x-1/2 flex gap-2 pointer-events-auto"
+                style={{ top: 'calc(50% + 72px)', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              >
+                <button
+                  onClick={handlePickFiles}
+                  className="text-xs px-4 py-2 bg-bg-elevated hover:bg-bg-hover border border-border text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  + Files
+                </button>
+                <button
+                  onClick={handlePickFolder}
+                  className="text-xs px-4 py-2 bg-bg-elevated hover:bg-bg-hover border border-border text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  + Folder
+                </button>
+              </div>
             </div>
           </div>
         ) : (
@@ -224,7 +251,7 @@ export default function QueuePanel({
                     : 'border-border group-hover:border-text-muted/60'
                 }`}>
                   {file.selected && (
-                    <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="2,6 5,9 10,3" />
                     </svg>
                   )}
@@ -256,7 +283,7 @@ export default function QueuePanel({
                         <span className="text-text-muted/70">{formatFileSize(file.metadata.size)}</span>
                       </div>
                     ) : (
-                      <span className="text-xs text-text-muted">No metadata</span>
+                      <span className="text-xs text-warning">No metadata</span>
                     )}
 
                     <span className="text-xs text-accent/50 ml-auto shrink-0 font-medium">
@@ -273,7 +300,30 @@ export default function QueuePanel({
                       {job.progress.eta && <span className="text-accent/60">ETA {job.progress.eta}</span>}
                     </div>
                   )}
+
+                  {/* Error details */}
+                  {job?.status === 'error' && job.error && (
+                    <p className="text-[11px] text-error mt-1 truncate" title={job.error}>
+                      {job.error}
+                    </p>
+                  )}
                 </div>
+
+                {/* Show in folder button (completed items) */}
+                {job?.status === 'done' && job.outputPath && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      ipc.showItemInFolder(job.outputPath!)
+                    }}
+                    className="p-1.5 hover:bg-accent/10 text-accent/60 hover:text-accent transition-all relative shrink-0"
+                    title="Show in folder"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                  </button>
+                )}
 
                 {/* Remove button */}
                 {!converting && (
@@ -282,7 +332,7 @@ export default function QueuePanel({
                       e.stopPropagation()
                       onRemoveFile(file.id)
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-error/10 text-text-muted hover:text-error transition-all relative shrink-0"
+                    className="p-1.5 hover:bg-error/10 text-text-muted/40 hover:text-error transition-all relative shrink-0"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                       <line x1="18" y1="6" x2="6" y2="18" />

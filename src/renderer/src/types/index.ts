@@ -19,6 +19,7 @@ export interface ConversionSettings {
   audioBitrate: string
   fps: string
   extraArgs: string
+  outputDir: string
 }
 
 export interface FileItem {
@@ -94,7 +95,8 @@ export function resolveSettings(files: FileItem[]): ResolvedSettings {
   if (files.length === 0) {
     return {
       preset: MIXED, videoCodec: MIXED, audioCodec: MIXED, container: MIXED,
-      resolution: MIXED, videoBitrate: MIXED, audioBitrate: MIXED, fps: MIXED, extraArgs: MIXED
+      resolution: MIXED, videoBitrate: MIXED, audioBitrate: MIXED, fps: MIXED, extraArgs: MIXED,
+      outputDir: MIXED
     }
   }
 

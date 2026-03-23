@@ -18,7 +18,7 @@ export function useFileImport() {
         name,
         metadata: null,
         probing: true,
-        selected: false,
+        selected: true,
         settings: { ...defaultSettings }
       }
     })
@@ -47,6 +47,11 @@ export function useFileImport() {
 
   const removeFile = useCallback((id: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== id))
+  }, [])
+
+  const removeFiles = useCallback((ids: string[]) => {
+    const idSet = new Set(ids)
+    setFiles((prev) => prev.filter((f) => !idSet.has(f.id)))
   }, [])
 
   const clearFiles = useCallback(() => {
@@ -115,6 +120,7 @@ export function useFileImport() {
     selectedFiles,
     addFiles,
     removeFile,
+    removeFiles,
     clearFiles,
     selectFile,
     selectAll,

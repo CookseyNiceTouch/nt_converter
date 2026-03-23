@@ -11,6 +11,8 @@ interface Api {
   scanDroppedPaths: (paths: string[]) => Promise<string[]>
   startQueue: (jobs: unknown[]) => Promise<void>
   cancelQueue: () => Promise<void>
+  chooseOutputDir: () => Promise<string>
+  showItemInFolder: (filePath: string) => Promise<void>
 
   windowMinimize: () => Promise<void>
   windowMaximize: () => Promise<void>

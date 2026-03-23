@@ -11,7 +11,8 @@ export const defaultSettings: ConversionSettings = {
   videoBitrate: '8000k',
   audioBitrate: '192k',
   fps: '',
-  extraArgs: '-preset medium -crf 18'
+  extraArgs: '-preset medium -crf 18',
+  outputDir: ''
 }
 
 export function useConversion() {
@@ -79,7 +80,8 @@ export function useConversion() {
         videoBitrate: f.settings.videoBitrate,
         audioBitrate: f.settings.audioBitrate,
         fps: f.settings.fps,
-        extraArgs: f.settings.extraArgs
+        extraArgs: f.settings.extraArgs,
+        outputDir: f.settings.outputDir
       },
       duration: f.metadata?.duration || 0
     }))

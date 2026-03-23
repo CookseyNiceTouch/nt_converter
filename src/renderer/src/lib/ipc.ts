@@ -15,6 +15,8 @@ export const ipc = {
   scanDroppedPaths: (paths: string[]): Promise<string[]> => getApi().scanDroppedPaths(paths),
   startQueue: (jobs: unknown[]): Promise<void> => getApi().startQueue(jobs),
   cancelQueue: (): Promise<void> => getApi().cancelQueue(),
+  chooseOutputDir: (): Promise<string> => getApi().chooseOutputDir(),
+  showItemInFolder: (filePath: string): Promise<void> => getApi().showItemInFolder(filePath),
 
   windowMinimize: (): Promise<void> => getApi().windowMinimize(),
   windowMaximize: (): Promise<void> => getApi().windowMaximize(),

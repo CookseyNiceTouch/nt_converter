@@ -2,18 +2,24 @@ import type { Job } from '../types'
 
 interface Props {
   fileCount: number
+  selectedFileCount: number
+  probing: boolean
   jobs: Map<string, Job>
   converting: boolean
   onConvert: () => void
+  onConvertSelected: () => void
   onCancel: () => void
   onClearDone: () => void
 }
 
 export default function BottomBar({
   fileCount,
+  selectedFileCount,
+  probing,
   jobs,
   converting,
   onConvert,
+  onConvertSelected,
   onCancel,
   onClearDone
 }: Props): JSX.Element {
@@ -44,6 +50,9 @@ export default function BottomBar({
       <div className="flex items-stretch">
         <div className="flex items-center gap-2.5 text-xs text-text-muted flex-1 px-4 py-2">
           <span className="tabular-nums">{fileCount} file{fileCount !== 1 ? 's' : ''}</span>
+          {probing && (
+            <span className="text-warning animate-pulse">Analyzing...</span>
+          )}
 
           {converting && currentJob?.progress && (
             <>
@@ -96,13 +105,24 @@ export default function BottomBar({
               Cancel
             </button>
           ) : (
-            <button
-              onClick={onConvert}
-              disabled={fileCount === 0}
-              className="px-6 text-xs font-bold bg-accent hover:bg-accent-hover text-black transition-all duration-150 disabled:opacity-25 disabled:cursor-not-allowed"
-            >
-              Convert
-            </button>
+            <>
+              {selectedFileCount > 0 && (
+                <button
+                  onClick={onConvertSelected}
+                  disabled={probing}
+                  className="px-5 text-xs font-semibold bg-bg-tertiary hover:bg-bg-hover text-accent border-l border-border transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+                >
+                  Convert {selectedFileCount} Selected
+                </button>
+              )}
+              <button
+                onClick={onConvert}
+                disabled={fileCount === 0 || probing}
+                className="px-6 text-xs font-bold bg-accent hover:bg-accent-hover text-black transition-all duration-150 disabled:opacity-25 disabled:cursor-not-allowed"
+              >
+                Convert All
+              </button>
+            </>
           )}
         </div>
       </div>
